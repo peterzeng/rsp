@@ -52,6 +52,7 @@ if __name__ == "__main__":
     train_df = pd.read_csv(f"../data/{args.dataset}/train.csv", encoding="utf-8", lineterminator='\n')
     dev_df = pd.read_csv(f"../data/{args.dataset}/dev.csv", encoding="utf-8", lineterminator='\n')
     test_df = pd.read_csv(f"../data/{args.dataset}/test.csv", encoding="utf-8", lineterminator='\n')
+
     train_data = process_posts(train_df, g2v_vectorizer)
     dev_data = process_posts(dev_df, g2v_vectorizer)
     test_data = process_posts(test_df, g2v_vectorizer)
@@ -138,7 +139,6 @@ if __name__ == "__main__":
         if avg_val_loss < best_val_loss:
             print("saving model")
             best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), f"../model/{args.model_type}_{args.dataset}_{args.run_id}_residual.pt")
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -168,10 +168,10 @@ if __name__ == "__main__":
         gram2vec_cosims.append(cosim[0][0])
 
     predicted_labels = []
-
+    print("length of gram2vec_cosims is: ", len(gram2vec_cosims))
     model.eval()
     with torch.no_grad():
-        train_dataloader = tqdm(train_dataloader, desc="test loop", position=1 ,leave=True)
+        train_dataloader = tqdm(train_dataloader, desc="test loop", position=1, leave=True)
 
         for batch in train_dataloader:
             
@@ -179,9 +179,9 @@ if __name__ == "__main__":
                 context = {k: v.to(device) for k, v in batch["context"].items()}
                 labels = batch["labels"].to(device)  
                 outputs = model(context, labels=labels)
-         
+        
             predictions = outputs["logits"].squeeze().detach().cpu().numpy() 
-            predicted_labels.append(predictions)
+            predicted_labels.extend(predictions)
 
     residual_cosims = [gram2vec_cosims[i] + predicted_labels[i] for i in range(len(predicted_labels))]
     true_labels_np = np.array(list(train_df['same']))
@@ -191,6 +191,7 @@ if __name__ == "__main__":
     best_f1 = 0
 
     for threshold in thresholds:
+        print(threshold)
         predicted_labels_residual = np.array([1 if score > threshold else 0 for score in residual_cosims])
         f1_per_class = f1_score(true_labels_np, predicted_labels_residual, average=None, zero_division=0)
         
@@ -199,6 +200,10 @@ if __name__ == "__main__":
             best_f1 = f1_per_class[1]
             best_threshold = threshold
 
+    # Print data types of variables
+    print(f"Data type of best_threshold: {type(best_threshold)}")
+    print(f"Data type of best_f1: {type(best_f1)}")
+    print(f"Data type of f1_per_class: {type(f1_per_class)}")
     print(f"Best threshold for {args.model_type} on {args.dataset}: {best_threshold}")
     ### END THRESHOLD SELECTION ###
     
@@ -316,4 +321,4 @@ if __name__ == "__main__":
     plt.title(f'AUC Curve for {args.model_type} on {args.dataset}')
     plt.legend(loc="lower right")
     plt.grid()
-    plt.savefig(f"../results/graphs/residual/{args.model_type}_{args.dataset}_{args.run_id}_residual_auc.png")
+    plt.savefig(f"../results/residual/graphs/residual/{args.model_type}_{args.dataset}_{args.run_id}_residual_auc.png")

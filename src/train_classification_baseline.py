@@ -57,11 +57,7 @@ class AuthorClassificationModel(torch.nn.Module):
 
         logits = self.classifier(embeds)
         logits = logits.to(torch.float32)
-        # print("Logits type:", type(logits))
-        # print("Logits shape:", logits.shape)
-        # if labels is not None:
-        #     print("Labels type:", type(labels))
-        #     print("Labels shape:", labels.shape)
+     
         if labels is not None:
             labels = labels.to(torch.long)
             loss_fct = torch.nn.CrossEntropyLoss()  # Loss function for classification
