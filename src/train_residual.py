@@ -80,7 +80,7 @@ if __name__ == "__main__":
     dev_dataloader = DataLoader(dev_dataset, batch_size=b_size)
     test_dataloader = DataLoader(test_dataset, batch_size=1)
 
-    optimizer = AdamW(model.parameters(), lr=1e-5, weight_decay=.0001)
+    optimizer = AdamW(model.parameters(), lr=5e-5, weight_decay=.0001)
 
     # Training loop
     best_val_loss = float('inf')
@@ -243,7 +243,7 @@ if __name__ == "__main__":
         test_data_for_csv.append([gram2vec_cosims[i], predicted_labels[i], residual_cosims[i], same_labels[i]])
 
     # Define the CSV file path
-    csv_file_path = f"../results/residual_predictions_{args.model_type}_{args.run_id}_{args.dataset}.csv"
+    csv_file_path = f"../results/residual/residual_predictions_{args.model_type}_{args.run_id}_{args.dataset}.csv"
 
     # Define the header for the CSV file
     csv_header = ["gram2vec cosim", "predicted residual", "corrected cosim", 'same']
@@ -289,17 +289,6 @@ if __name__ == "__main__":
     gram2vec_accuracy = g2v_correct / total
     residual_accuracy = residual_correct / total
 
-    # Print statistics in the specified order
-    print(f"Best threshold: {best_threshold:.4f}")
-    print(f"Gram2Vec same author F1: {gram2vec_f1_per_class[1]:.4f}")
-    print(f"Residual same author F1: {residual_f1_per_class[1]:.4f}")
-    print(f"Gram2Vec different author F1: {gram2vec_f1_per_class[0]:.4f}")
-    print(f"Residual different author F1: {residual_f1_per_class[0]:.4f}")
-    print(f"Gram2Vec correct: {g2v_correct}/{total}")
-    print(f"Residual correct: {residual_correct}/{total}")
-    print(f"Gram2Vec accuracy: {gram2vec_accuracy:.4f}")
-    print(f"Residual accuracy: {residual_accuracy:.4f}")
-
     # Calculate the ROC curve and AUC for residual_cosims
     fpr_residual, tpr_residual, _ = roc_curve(true_labels_np, residual_cosims)
     auc_residual = auc(fpr_residual, tpr_residual)
@@ -307,6 +296,23 @@ if __name__ == "__main__":
     # Calculate the ROC curve and AUC for gram2vec_cosims
     fpr_gram2vec, tpr_gram2vec, _ = roc_curve(true_labels_np, gram2vec_cosims)
     auc_gram2vec = auc(fpr_gram2vec, tpr_gram2vec)
+
+    # Write statistics to a text file
+    if not os.path.exists(f"../results/residual/results_{args.model_type}_{args.dataset}_{args.run_id}.txt"):
+        stats_file_path = f"../results/residual/results_{args.model_type}_{args.dataset}_{args.run_id}.txt"
+
+    with open(stats_file_path, 'w') as f:
+        f.write(f"Best threshold: {best_threshold:.4f}\n")
+        f.write(f"Gram2Vec same author F1: {gram2vec_f1_per_class[1]:.4f}\n")
+        f.write(f"Residual same author F1: {residual_f1_per_class[1]:.4f}\n")
+        f.write(f"Gram2Vec different author F1: {gram2vec_f1_per_class[0]:.4f}\n")
+        f.write(f"Residual different author F1: {residual_f1_per_class[0]:.4f}\n")
+        f.write(f"Gram2Vec correct: {g2v_correct}/{total}\n")
+        f.write(f"Residual correct: {residual_correct}/{total}\n")
+        f.write(f"Gram2Vec accuracy: {gram2vec_accuracy:.4f}\n")
+        f.write(f"Residual accuracy: {residual_accuracy:.4f}\n")
+        f.write(f"Gram2Vec AUC: {auc_gram2vec:.3f}\n")
+        f.write(f"Residual AUC: {auc_residual:.3f}\n")
 
     print(f"gram2vec AUC: {auc_gram2vec:.3f}, residual AUC: {auc_residual:.3f}")
     # Plot the ROC curve

@@ -56,10 +56,8 @@ class AuthorClassificationModel(torch.nn.Module):
             embeds = outputs
 
         logits = self.classifier(embeds)
-        logits = logits.to(torch.float32)
-     
+
         if labels is not None:
-            labels = labels.to(torch.long)
             loss_fct = torch.nn.CrossEntropyLoss()  # Loss function for classification
             loss = loss_fct(logits.view(-1, 2), labels.view(-1))
             return {
@@ -94,17 +92,16 @@ class DocumentPairDataset(Dataset):
         if not self.model_type == "rrivera1849/LUAR-MUD":
             context = {key: val[0] for key, val in context.items()}  # Remove the extra batch dimension
 
-        label = torch.tensor(item["residual"], dtype=torch.long)
+        label = torch.tensor(item["label"])
         return {"context": context, "labels": label}
 
 def process_posts(post_df, g2v_vectorizer):
     data = []
     for i, row in tqdm(post_df.iterrows(), total=post_df.shape[0], desc="Processing Posts"):
         _, _, cosim = g2v_vectorizer.get_vector_and_score(row['post_1'], row['post_2'], row['post_1_id'], row['post_2_id'])
-        residual = row['same'] - cosim
         data.append({"text1":row['post_1'],
                         "text2":row['post_2'],
-                        "residual":residual})
+                        "label":int(row['same'])})
     
     return data
 
@@ -156,14 +153,15 @@ if __name__ == "__main__":
 
     for epoch in range(num_epochs):
         model.train()
-        train_loss = 0
+
         train_dataloader = tqdm(train_dataloader, desc=f"Training Epoch {epoch+1}/{num_epochs}", position=1, leave=True)
         optimizer.zero_grad()
+        train_loss = 0
 
         for i, batch in enumerate(train_dataloader):
             with autocast():
                 context = {k: v.to(device) for k, v in batch["context"].items()}
-                labels = batch["labels"].to(device).to(torch.long) 
+                labels = batch["labels"].to(device)
                 outputs = model(context, labels=labels)
                 loss = outputs["loss"] / accumulation_steps
 
@@ -180,7 +178,6 @@ if __name__ == "__main__":
         print(f"Epoch {epoch+1}, Train Loss: {avg_train_loss}")
 
         dev_dataloader = tqdm(dev_dataloader, desc=f"Validation Epoch {epoch+1}/{num_epochs}", position=1, leave=True)
-        
         # Validation loop
         model.eval()
         val_loss = 0
@@ -188,7 +185,7 @@ if __name__ == "__main__":
             for batch in dev_dataloader:
                 with autocast():
                     context = {k: v.to(device) for k, v in batch["context"].items()}
-                    labels = batch["labels"].to(device).to(torch.long) 
+                    labels = batch["labels"].to(device)
                     outputs = model(context, labels=labels)
                     loss = outputs["loss"]
                 
