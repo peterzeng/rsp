@@ -56,7 +56,7 @@ if __name__ == "__main__":
     dev_data = process_posts(dev_df, g2v_vectorizer)
     test_data = process_posts(test_df, g2v_vectorizer)
 
-    if args.percentage == 1 and not os.path.exists(f'{args.dataset}_vector_map.pkl'):  
+    if not os.path.exists(f'{args.dataset}_vector_map.pkl'):  
         g2v_vectorizer.save_cache()
 
     train_dataset = ResidualDataset(train_data, model_type = args.model_type)
@@ -111,16 +111,12 @@ if __name__ == "__main__":
 
             total_loss += loss.item() * accumulation_steps  
             train_dataloader.set_postfix(loss=(total_loss / (i + 1)), refresh=False)
-            # optimizer.step()
 
         avg_loss = total_loss/len(train_dataloader)
         print(f"Epoch: {epoch + 1}, Loss: {avg_loss}")
 
         model.eval()
         val_loss = 0
-
-        val_labels = []
-        val_predictions = []
 
         with torch.no_grad():
             dev_dataloader = tqdm(dev_dataloader, desc=f"Validation Epoch {epoch+1}/{num_epochs}", position=1 ,leave=True)
@@ -133,11 +129,6 @@ if __name__ == "__main__":
                     loss = outputs["loss"]
                 
                 val_loss += loss.item()
-
-                predictions = outputs["logits"].squeeze().detach().cpu().numpy()  
-                labels = labels.detach().cpu().numpy()
-                val_labels.extend(labels)
-                val_predictions.extend(predictions)
 
         avg_val_loss = val_loss / len(dev_dataloader)
         print(f"Validation Loss: {avg_val_loss}")
@@ -166,6 +157,7 @@ if __name__ == "__main__":
     pbar.close()
 
     ### THRESHOLD SELECTION ###
+    print("Selecting Threshold")
     gram2vec_cosims = []
     vector_map = pd.read_pickle(f'{args.dataset}_vector_map.pkl')
 
@@ -246,7 +238,7 @@ if __name__ == "__main__":
         test_data_for_csv.append([gram2vec_cosims[i], predicted_labels[i], residual_cosims[i], same_labels[i]])
 
     # Define the CSV file path
-    csv_file_path = f"results/residual_predictions_{args.model_type}_{args.run_id}_{args.dataset}.csv"
+    csv_file_path = f"../results/residual_predictions_{args.model_type}_{args.run_id}_{args.dataset}.csv"
 
     # Define the header for the CSV file
     csv_header = ["gram2vec cosim", "predicted residual", "corrected cosim", 'same']
@@ -324,4 +316,4 @@ if __name__ == "__main__":
     plt.title(f'AUC Curve for {args.model_type} on {args.dataset}')
     plt.legend(loc="lower right")
     plt.grid()
-    plt.savefig(f"results/graphs/{args.model_type}_{args.dataset}_{args.run_id}_residual_auc.png")
+    plt.savefig(f"../results/graphs/residual/{args.model_type}_{args.dataset}_{args.run_id}_residual_auc.png")

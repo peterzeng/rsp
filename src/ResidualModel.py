@@ -82,6 +82,7 @@ class ResidualModel(torch.nn.Module):
         if self.model_type in ['roberta', 'roberta-large', 'longformer']:
             outputs = self.enc_model(**context, output_hidden_states=True).hidden_states[-1]
             embeds = outputs[:, 0, :]
+            
         elif self.model_type == 'luar':
             outputs = self.enc_model(**context)
             embeds = outputs
