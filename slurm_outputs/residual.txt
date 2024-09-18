@@ -1,0 +1,7 @@
+Job started at Wed Sep 18 11:58:31 EDT 2024
+Gram2Vec: Using 'en_core_web_lg'
+cpu
+trainable params: 147,456 || all params: 82,659,584 || trainable%: 0.1783894774984592
+None
+Using batch size of 64
+number of accuulation steps: 1

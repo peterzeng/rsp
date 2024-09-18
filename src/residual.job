@@ -1,0 +1,19 @@
+#!/bin/bash
+#SBATCH --job-name=hiatus.job
+#SBATCH --output=/home/pezeng/rsp/slurm_outputs/residual.txt
+#SBATCH --error=/home/pezeng/rsp/slurm_outputs/residual_err.txt
+#SBATCH --time=2-00:00
+
+# Start timer
+start_time=$(date +%s)
+echo "Job started at $(date)"
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate residual
+/home/pezeng/miniconda3/envs/residual/bin/python /home/pezeng/rsp/src/train_attention_residual.py -m luar -p 0.1
+
+# End timer and calculate duration
+end_time=$(date +%s)
+echo "Job ended at $(date)"
+duration=$((end_time - start_time))
+echo "Total job duration: $((duration / 3600)) hours, $(((duration % 3600) / 60)) minutes, $((duration % 60)) seconds"

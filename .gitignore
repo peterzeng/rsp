@@ -2,6 +2,8 @@ __pychace__/
 *.pyc
 .vscode/
 gram2vec/
+results/
+data/
 *.pt
 *.zip
 *.pkl

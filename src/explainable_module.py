@@ -39,7 +39,6 @@ class Gram2VecModule(ExplainableModule):
         if uid in self.cache:
             return self.cache[uid]
         else:
-            print(uid)
             vector = vectorizer.from_documents([doc], config = self.vectorizer_configs).values
             self.cache_features(uid, vector)
             return vector
@@ -49,16 +48,12 @@ class Gram2VecModule(ExplainableModule):
         if uid1 in self.cache: # This is for during TA2 eval when we have computed the query vector already
             vector_1 = self.cache[uid1]
         else:
-            print(doc1)
-            print(uid1)  
             vector_1 = vectorizer.from_documents([doc1], config = self.vectorizer_configs).values
             self.cache_features(uid1, vector_1)
 
         if uid2 in self.cache:
             vector_2 = self.cache[uid2]
         else:
-            print(doc2)
-            print(uid2)
             vector_2 = vectorizer.from_documents([doc2], config = self.vectorizer_configs).values
             self.cache_features(uid2, vector_2)
 
