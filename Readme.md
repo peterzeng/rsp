@@ -1,4 +1,4 @@
-## Repository for the Residualized Similarity Prediction Paper Submission
+## Residualized Similarity Prediction using Attention
 
 ### Setup
 - `conda create -n rsp python=3.10`
