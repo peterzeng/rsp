@@ -18,18 +18,57 @@ import numpy as np
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-def process_posts(post_df, g2v_vectorizer, normalized=False):
-    data = []
-    for i, row in tqdm(post_df.iterrows(), total=post_df.shape[0], desc="Processing Posts"):
-        features1, features2, cosim = g2v_vectorizer.get_vector_and_score(row['document1'], row['document2'], row['doc_id1'], row['doc_id2'], normalized=normalized)
-        residual = (1 - cosim) if row['same'] == 1 else (-1 - cosim)
-        data.append({"text1":row['document1'],
-                        "text2":row['document2'],
-                        "features1":features1,
-                        "features2":features2,
-                        "residual":residual})
+def cache_and_process_documents(train_df, dev_df, test_df, g2v_vectorizer, normalized=False):
+
+    def cache_documents(df, g2v_vectorizer):
+        for i, row in tqdm(df.iterrows(), total=df.shape[0], desc="Updating Vector Cache"):
+            try:
+                if pd.isna(row['document1']) or row['document1'] is None:
+                    print(f"Warning: Found null document at index {i}")
+                    continue
+            except Exception as e:
+                print(f"Error processing document at index {i}: {str(e)}")
+                print(f"Document content: {repr(row['document1'])}")
+                raise  # Re-raise the exception if you want to stop execution
+
+            try:
+                if pd.isna(row['document2']) or row['document2'] is None:
+                    print(f"Warning: Found null document at index {i}")
+                    continue
+                    
+            except Exception as e:
+                print(f"Error processing document at index {i}: {str(e)}")
+                print(f"Document content: {repr(row['document2'])}")
+                raise  # Re-raise the exception if you want to stop execution
+                
+            g2v_vectorizer.cache_vector(row['document1'], row['doc_id1'])
+            g2v_vectorizer.cache_vector(row['document2'], row['doc_id2'])
+
+    cache_documents(train_df, g2v_vectorizer)
+    cache_documents(dev_df, g2v_vectorizer)
+    cache_documents(test_df, g2v_vectorizer)
+    g2v_vectorizer.save_cache()
+
     
-    return data
+    ### returns: data, a list of dictionaries with the relevant data: text1, text2, features1, features2, residual
+    def process_posts(df, g2v_vectorizer, normalized=False):
+        data = []
+        for i, row in tqdm(df.iterrows(), total=df.shape[0], desc="Processing Posts"):
+            features1, features2, cosim = g2v_vectorizer.get_vector_and_score(row['document1'], row['document2'], row['doc_id1'], row['doc_id2'], normalized=normalized)
+            residual = (1 - cosim) if row['same'] == 1 else (-1 - cosim)
+            data.append({"text1":row['document1'],
+                            "text2":row['document2'],
+                            "features1":features1,
+                            "features2":features2,
+                            "residual":residual})
+        
+        return data
+    
+    train_data = process_posts(train_df, g2v_vectorizer, normalized=normalized)
+    dev_data = process_posts(dev_df, g2v_vectorizer, normalized=normalized)
+    test_data = process_posts(test_df, g2v_vectorizer, normalized=normalized)
+
+    return train_data, dev_data, test_data
 
 def generate_neural_feature_map(dataloader, model_type):
     if model_type == "/home/zengpe/rsp/LUAR-RU":
@@ -63,7 +102,7 @@ def generate_neural_feature_map(dataloader, model_type):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model on residual data.")
     parser.add_argument("-m", "--model_type", type=str, default="luar", choices=["roberta", "roberta-large", "luar", "style", "luar-ru"], help="Type of model to use for training.")
-    parser.add_argument("-d", "--dataset", type=str, default="reddit", choices=["fanfiction", "reddit", "amazon", "hiatus", "imbalanced_reddit","hiatus_combined"], help="Dataset to use for training.")
+    parser.add_argument("-d", "--dataset", type=str, default="reddit", choices=["fanfiction", "reddit", "amazon", "hiatus", "imbalanced_reddit","hiatus_combined","hiatus_russian","pikabu"], help="Dataset to use for training.")
     parser.add_argument("-r", "--run_id", type=str, default="", help="Run ID for the experiment.")
     parser.add_argument("-p", "--percentage", type=float, default=1, help="Percentage of data to sample for training, validation, and testing.")
     parser.add_argument("-c", "--config", type=str, default="config.txt", help="Path to the config file.")
@@ -71,8 +110,37 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--feature_dim", type=int, default=617, help="Feature dimension.")
     parser.add_argument("-n", "--normalized", type=bool, default=False, help="Whether to use normalized vectors.")
     parser.add_argument("-l", "--language", type=str, default="en", choices=["en", "ru"], help="Language of the dataset.")
+    parser.add_argument("-k", "--fold", type=int, default=0, help="Fold number for k-fold cross validation")
     args = parser.parse_args()
 
+    # Create descriptive experiment name
+    experiment_name = f"{args.model_type}_{args.dataset}_fold{args.fold}_{args.run_id}"
+    
+    # Create output directories
+    base_output_dir = f"../experiments/{experiment_name}"
+    model_dir = f"{base_output_dir}/models"
+    results_dir = f"{base_output_dir}/results"
+    graph_dir = f"{base_output_dir}/graphs"
+    
+    # Create all directories
+    for directory in [model_dir, results_dir, graph_dir]:
+        os.makedirs(directory, exist_ok=True)
+
+    # Update file paths to use fold-specific data
+    data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
+    train_df = pd.read_csv(f"{data_base_path}/train.csv", encoding="utf-8", lineterminator='\n')
+    dev_df = pd.read_csv(f"{data_base_path}/dev.csv", encoding="utf-8", lineterminator='\n')
+    test_df = pd.read_csv(f"{data_base_path}/test.csv", encoding="utf-8", lineterminator='\n')
+    
+    if args.language == "en":
+        os.environ["LANGUAGE"] = "en"
+        os.environ["SPACY_MODEL"] = "en_core_web_lg"
+    elif args.language == "ru":
+        os.environ["LANGUAGE"] = "ru"
+        os.environ["SPACY_MODEL"] = "ru_core_news_lg"
+    
+    from explainable_module import Gram2VecModule
+    
     vectorizer_configs = {
         "pos_unigrams":1,
         "pos_bigrams":1,
@@ -86,22 +154,7 @@ if __name__ == "__main__":
         "num_tokens":0 
     }
 
-    if args.language == "en":
-        train_df = pd.read_csv(f"../data/{args.dataset}/train.csv", encoding="utf-8")
-        # train_df = pd.read_csv("../data/hiatus_combined_hard_negative/train.csv", encoding="utf-8")
-        dev_df = pd.read_csv(f"../data/{args.dataset}/dev.csv", encoding="utf-8")
-        test_df = pd.read_csv(f"../data/{args.dataset}/test.csv", encoding="utf-8")
-        os.environ["LANGUAGE"] = "en"
-        os.environ["SPACY_MODEL"] = "en_core_web_lg"
-    elif args.language == "ru":
-        train_df = pd.read_csv(f"../data/{args.dataset}/russian/train.csv", encoding="utf-8")
-        dev_df = pd.read_csv(f"../data/{args.dataset}/russian/dev.csv", encoding="utf-8")
-        test_df = pd.read_csv(f"../data/{args.dataset}/russian/test.csv", encoding="utf-8")
-        os.environ["LANGUAGE"] = "ru"
-        os.environ["SPACY_MODEL"] = "ru_core_news_lg"
-        args.feature_dim = 613
-    
-    from explainable_module import Gram2VecModule
+    ### CACHE IS DECIDED HERE ###
     g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=vectorizer_configs)
     # if not os.path.exists(f"vector_cache/{args.dataset}_{args.run_id}_normalized_vector_map.pkl"):
         # g2v_vectorizer.normalize_cache()
@@ -122,23 +175,11 @@ if __name__ == "__main__":
 
     model.to(device)
     
-    if args.percentage != 1:
-        train_df_sampled = train_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
-        dev_df_sampled = dev_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
-        test_df_sampled = test_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
+    train_df_sampled = train_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
+    dev_df_sampled = dev_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
+    test_df_sampled = test_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
 
-        train_data = process_posts(train_df_sampled, g2v_vectorizer)
-        dev_data = process_posts(dev_df_sampled, g2v_vectorizer)
-        test_data = process_posts(test_df_sampled, g2v_vectorizer)
-    else:
-        train_data = process_posts(train_df, g2v_vectorizer, normalized=args.normalized)
-        dev_data = process_posts(dev_df, g2v_vectorizer, normalized=args.normalized)
-        test_data = process_posts(test_df, g2v_vectorizer, normalized=args.normalized)
-        test_df_sampled = test_df
-
-    if args.percentage == 1:
-        # g2v_vectorizer.normalize_cache()
-        g2v_vectorizer.save_cache()
+    train_data, dev_data, test_data = cache_and_process_documents(train_df_sampled, dev_df_sampled, test_df_sampled, g2v_vectorizer, normalized=args.normalized)
 
     print(model_type)
     train_dataset = AttentionResidualDataset(train_data, model_type = model_type)
@@ -150,7 +191,7 @@ if __name__ == "__main__":
         b_size = 16
     elif args.model_type == "style":
         b_size = 32
-    elif args.model_type == 'luar' or args.model_type == "roberta":
+    elif args.model_type == 'luar' or args.model_type == "roberta" or args.model_type == "luar-ru":
         b_size = 64
     
     accumulation_steps = 1
@@ -266,13 +307,13 @@ if __name__ == "__main__":
         if avg_val_loss < best_val_loss:
             print("saving model")
             best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), f"../model/{args.model_type}_{args.dataset}_{args.run_id}_attention_residual.pt")
+            torch.save(model.state_dict(), f"{model_dir}/model.pt")
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': avg_val_loss,
-                }, f"../model/{args.model_type}_{args.dataset}_{args.run_id}_attention_residual_checkpoint.pt")
+            }, f"{model_dir}/checkpoint.pt")
             early_stopping_counter = 0  # reset counter after improvement
         else:
             early_stopping_counter += 1
@@ -362,7 +403,7 @@ if __name__ == "__main__":
         results_dir = "attention_residual_results"
         if not os.path.exists(results_dir):
             os.makedirs(results_dir)
-        csv_file_path = f"attention_residual_results/results_{args.model_type}_{args.dataset}_{args.run_id}.csv"
+        csv_file_path = f"{results_dir}/metrics.csv"
 
         # Define the header for the CSV file
         csv_header = [
@@ -428,7 +469,7 @@ if __name__ == "__main__":
     save_dir = os.path.dirname("attention_residual_results/graphs/")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    plt.savefig(f"attention_residual_results/graphs/{args.model_type}_{args.dataset}_{args.run_id}_residual_auc.png")
+    plt.savefig(f"{graph_dir}/auc_curve.png")
     # # Check if the CSV file already exists
     file_exists = os.path.isfile(csv_file_path)
 
@@ -459,4 +500,4 @@ if __name__ == "__main__":
     plt.ylabel('Frequency')
     plt.grid(axis='y', alpha=0.75)
 
-    plt.savefig(f"attention_residual_results/graphs/predicted_labels_{args.model_type}_{args.run_id}_{args.dataset}.png")
+    plt.savefig(f"{graph_dir}/predicted_labels.png")
