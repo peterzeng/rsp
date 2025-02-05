@@ -104,11 +104,16 @@ if __name__ == "__main__":
     parser.add_argument('-m', '--model', type=str, default='luar', choices=['roberta-base', 'roberta-large', 'longformer', 'luar', 'luar-ru'])
     parser.add_argument('-d', '--dataset', type=str, default='hiatus_combined', choices=['reddit', 'amazon', 'fanfiction', 'hiatus_combined', 'hiatus_russian', 'pikabu'])
     parser.add_argument("-r", "--run_id", type=str, default="", help="Run ID for the experiment.")
-    parser.add_argument("-k", "--fold", type=int, default=0, help="Fold number for k-fold cross validation")
+    parser.add_argument("-k", "--fold", type=int, required=False, help="Fold number for k-fold cross validation")
     args = parser.parse_args()
 
     # Create descriptive experiment name
-    experiment_name = f"Contrastive_Finetune_{args.model}_{args.dataset}_fold{args.fold}_{args.run_id}"
+    if args.fold is not None:
+        experiment_name = f"Contrastive_Finetune_{args.model}_{args.dataset}_fold{args.fold}_{args.run_id}"
+        data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
+    else:
+        experiment_name = f"Contrastive_Finetune_{args.model}_{args.dataset}_{args.run_id}"
+        data_base_path = f"../data/{args.dataset}"
     
     # Create output directories
     base_output_dir = f"../experiments/{experiment_name}"
@@ -133,7 +138,6 @@ if __name__ == "__main__":
     loss = ContrastiveLoss()
 
     # Update data paths to use fold-specific data
-    data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
     train_df = pd.read_csv(f"{data_base_path}/train.csv")
     dev_df = pd.read_csv(f"{data_base_path}/dev.csv")
     test_df = pd.read_csv(f"{data_base_path}/test.csv")
