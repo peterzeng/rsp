@@ -2,10 +2,8 @@ import torch
 from torch.utils.data import DataLoader
 from AttentionResidualModel import AttentionResidualDataset, AttentionResidualModel
 import pandas as pd
-from torch.optim import AdamW
 from transformers import AutoModel
 from tqdm.auto import tqdm
-import logging
 from sklearn.metrics.pairwise import cosine_similarity
 from torch.cuda.amp import autocast
 from sklearn.metrics import roc_curve, auc
@@ -15,7 +13,7 @@ import csv
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
-def cache_and_process_documents(train_df, dev_df, test_df, g2v_vectorizer, normalized=False):
+def cache_and_process_documents(test_df, g2v_vectorizer, normalized=False):
 
     def cache_documents(df, g2v_vectorizer):
         for i, row in tqdm(df.iterrows(), total=df.shape[0], desc="Updating Vector Cache"):
@@ -41,11 +39,7 @@ def cache_and_process_documents(train_df, dev_df, test_df, g2v_vectorizer, norma
             g2v_vectorizer.cache_vector(row['document1'], row['doc_id1'])
             g2v_vectorizer.cache_vector(row['document2'], row['doc_id2'])
 
-    cache_documents(train_df, g2v_vectorizer)
-    cache_documents(dev_df, g2v_vectorizer)
     cache_documents(test_df, g2v_vectorizer)
-    g2v_vectorizer.save_cache()
-
     
     ### returns: data, a list of dictionaries with the relevant data: text1, text2, features1, features2, residual
     def process_posts(df, g2v_vectorizer, normalized=False):
@@ -57,16 +51,13 @@ def cache_and_process_documents(train_df, dev_df, test_df, g2v_vectorizer, norma
                             "text2":row['document2'],
                             "features1":features1,
                             "features2":features2,
-                            "residual":residual,
-                            "same":row['same']})
+                            "residual":residual})
         
         return data
     
-    train_data = process_posts(train_df, g2v_vectorizer, normalized=normalized)
-    dev_data = process_posts(dev_df, g2v_vectorizer, normalized=normalized)
     test_data = process_posts(test_df, g2v_vectorizer, normalized=normalized)
 
-    return train_data, dev_data, test_data
+    return test_data
 
 def generate_neural_feature_map(dataloader, model_type):
     if model_type == "/home/pezeng/rsp/LUAR-RU":
@@ -100,43 +91,41 @@ def generate_neural_feature_map(dataloader, model_type):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model on residual data.")
     parser.add_argument("-m", "--model_type", type=str, default="luar", choices=["roberta", "roberta-large", "luar", "style", "luar-ru"], help="Type of model to use for training.")
-    parser.add_argument("-d", "--dataset", type=str, default="reddit", choices=["fanfiction", "reddit", "amazon", "hiatus", "imbalanced_reddit","hiatus_combined","hiatus_russian","pikabu"], help="Dataset to use for training.")
+    parser.add_argument("-d", "--dataset", type=str, default="reddit", choices=["fanfiction", "reddit", "amazon", "hiatus", "hiatus_combined","hiatus_russian","pikabu"], help="Dataset to use for training.")
     parser.add_argument("-r", "--run_id", type=str, required=False, help="Run ID for the experiment.")
-    parser.add_argument("-p", "--percentage", type=float, default=1, help="Percentage of data to sample for training, validation, and testing.")
-    parser.add_argument("-c", "--config", type=str, default="config.txt", help="Path to the config file.")
-    parser.add_argument("-s", "--save_dir", type=str, default="vector_cache", help="Path to the save directory.")
+    parser.add_argument("-v", "--save_dir", type=str, default="vector_cache", help="Path to the save directory.")
     parser.add_argument("-f", "--feature_dim", type=int, default=617, help="Feature dimension.")
-    parser.add_argument("-n", "--normalized", action="store_true", help="Whether to use normalized vectors.")
-    parser.add_argument("-ln", "--layernorm", type=str, required=False, choices=["pre", "post", "both"], help="Whether to use pre or post layernorm.")
+    parser.add_argument("-n", "--normalized", type=bool, default=True, help="Whether to use normalized vectors.")
+    parser.add_argument("--layernorm", type=str, required=False, choices=["pre", "post", "both"], help="Whether to use pre or post layernorm.")
     parser.add_argument("-l", "--language", type=str, default="en", choices=["en", "ru"], help="Language of the dataset.")
     parser.add_argument("-k", "--fold", type=int, required=False, help="Fold number for k-fold cross validation")
     args = parser.parse_args()
 
-    if not args.run_id:
+    if not hasattr(args, 'run_id'):
         date = datetime.now().strftime("%Y-%m-%d")
         args.run_id = date
     
     n = "normalized" if args.normalized else "not_normalized"
     ln = args.layernorm if args.layernorm else "no_ln"
+    print(f"Running {args.model_type} on {args.dataset} with {n} and {ln}")
+
     # Create descriptive experiment name
     settings_folder = f"{args.model_type}_{args.dataset}_{n}_{ln}"
-
-    if args.fold is not None:
+    if hasattr(args, 'fold') and args.fold >= 0:
         experiment_name = f"{args.run_id}_fold{args.fold}"
         data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
     else:
         experiment_name = f"{args.run_id}"
         data_base_path = f"../data/{args.dataset}"
 
-    print("settings_folder: ", settings_folder)
     print("experiment_name: ", experiment_name)
     # Create output directories
     base_output_dir = f"../experiments/{settings_folder}/{experiment_name}"
-    slurm_output_dir = f"../slurm_outputs/{settings_folder}/{experiment_name}"
     model_dir = f"{base_output_dir}/models"
     results_dir = f"{base_output_dir}/results"
     graph_dir = f"{base_output_dir}/graphs"
     
+    slurm_output_dir = f"../slurm_outputs/{settings_folder}/{experiment_name}"
     os.makedirs(slurm_output_dir, exist_ok=True)
 
     # Create all directories
@@ -147,10 +136,12 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     # Update file paths to use fold-specific data
+    if hasattr(args, 'fold') and args.fold >= 0:
+        data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
+    else:
+        data_base_path = f"../data/{args.dataset}"
 
-    train_df = pd.read_csv(f"{data_base_path}/train.csv", encoding="utf-8")
-    dev_df = pd.read_csv(f"{data_base_path}/dev.csv", encoding="utf-8")
-    test_df = pd.read_csv(f"{data_base_path}/test.csv", encoding="utf-8")
+    test_df = pd.read_csv(f"{data_base_path}/test.csv", encoding="utf-8", lineterminator='\n')
     
     if args.language == "en":
         os.environ["LANGUAGE"] = "en"
@@ -161,27 +152,11 @@ if __name__ == "__main__":
     
     from explainable_module import Gram2VecModule
     
-    vectorizer_configs = {
-        "pos_unigrams":1,
-        "pos_bigrams":1,
-        "func_words":1,
-        "punctuation":1,
-        "letters":0,
-        "emojis":1,
-        "dep_labels":1, 
-        "morph_tags":1,
-        "sentences":1,
-        "num_tokens":0 
-    }
-
     ### CACHE IS DECIDED HERE ###
-    if args.fold is not None:
-        g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_fold{args.fold}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=vectorizer_configs)
+    if hasattr(args, 'fold') and args.fold >= 0:
+        g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_fold{args.fold}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
     else:
-        g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=vectorizer_configs)
-    # if not os.path.exists(f"vector_cache/{args.dataset}_{args.run_id}_normalized_vector_map.pkl"):
-        # g2v_vectorizer.normalize_cache()
-        # g2v_vectorizer.save_cache(normalized=True)
+        g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
 
     if args.model_type == "luar":
         model_type = "rrivera1849/LUAR-MUD"
@@ -195,158 +170,15 @@ if __name__ == "__main__":
         model_type = "AnnaWegmann/Style-Embedding"
 
     model = AttentionResidualModel(model_type=model_type, feature_dim=args.feature_dim)
-
+    model.load_state_dict(torch.load(f"{model_dir}/model.pt"))
     model.to(device)
     
-    train_df_sampled = train_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
-    dev_df_sampled = dev_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
-    test_df_sampled = test_df.sample(frac=args.percentage, random_state=30)  # random_state ensures reproducibility
-
-    train_data, dev_data, test_data = cache_and_process_documents(train_df_sampled, dev_df_sampled, test_df_sampled, g2v_vectorizer, normalized=args.normalized)
+    test_data = cache_and_process_documents(test_df, g2v_vectorizer, normalized=args.normalized)
 
     print(model_type)
-    train_dataset = AttentionResidualDataset(train_data, model_type = model_type)
-    dev_dataset = AttentionResidualDataset(dev_data, model_type = model_type)
     test_dataset = AttentionResidualDataset(test_data, model_type = model_type)
 
-    # Optimized for A6000 GPU 
-    if args.model_type == "roberta-large":
-        b_size = 16
-    elif args.model_type == "style":
-        b_size = 32
-    elif args.model_type == 'luar' or args.model_type == "roberta" or args.model_type == "luar-ru":
-        b_size = 64
-    
-    accumulation_steps = 1
-    print(f"Using batch size of {b_size}")
-    print(f"number of accuulation steps: {accumulation_steps}")
-
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=b_size)
-    dev_dataloader = DataLoader(dev_dataset, batch_size=b_size)
     test_dataloader = DataLoader(test_dataset, batch_size=1)
-
-    optimizer = AdamW(model.parameters(), lr=5e-5, weight_decay=.0001)
-    
-    # Training loop
-    best_val_loss = float('inf')
-    early_stopping_counter = 0
-    early_stopping_patience = 3
-
-    # Define the total number of epochs
-    num_epochs = 10
-    
-    pbar = tqdm(total=num_epochs, desc="Overall Training Progress", position=0)
-    for epoch in range(num_epochs):
-        model.train()
-        total_loss = 0
-        train_dataloader = tqdm(train_dataloader, desc=f"Training Epoch {epoch+1}/{num_epochs}", position=1, leave=True)
-        optimizer.zero_grad()
-
-        for i, batch in enumerate(train_dataloader):
-            with autocast():
-                doc1 = batch['text1']
-                doc2 = batch['text2']
-                features1 = batch['features1']
-                features2 = batch['features2']
-                labels = batch["labels"].to(device)  # Move labels to the device
-                outputs = model(doc1, doc2, features1, features2, labels=labels, layernorm="pre")
-                # attention_weights = outputs["attention_weights"]
-                # avg_attention = torch.mean(attention_weights, dim=1)
-                # print(avg_attention)
-                loss = outputs["loss"] / accumulation_steps  # Normalize loss to account for accumulation
-            
-            # print(outputs['logits'])
-            loss.backward()
-            if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_dataloader):
-                optimizer.step()  # Update parameters
-                optimizer.zero_grad()  # Reset gradients for the next set of accumulation steps
-
-            # Detach the loss when accumulating
-            total_loss += loss.detach().item() * accumulation_steps
-            train_dataloader.set_postfix(loss=(total_loss / (i + 1)), refresh=False)
-            # optimizer.step()
-
-        avg_loss = total_loss/len(train_dataloader)
-        print(f"Epoch: {epoch + 1}, Loss: {avg_loss}")
-
-        model.eval()
-        val_loss = 0
-        val_labels = []
-        val_predictions = []
-        attention_weights_sum = None
-        attention_weights_count = 0
-
-        with torch.no_grad():
-            dev_dataloader = tqdm(dev_dataloader, desc=f"Validation Epoch {epoch+1}/{num_epochs}", position=1, leave=True)
-
-            for batch in dev_dataloader:
-                with autocast():
-                    doc1 = batch['text1']
-                    doc2 = batch['text2']
-                    features1 = batch['features1']
-                    features2 = batch['features2']
-                    labels = batch["labels"].to(device)
-                    outputs = model(doc1, doc2, features1, features2, labels=labels, layernorm="pre")
-                    loss = outputs["loss"]
-                
-                val_loss += loss.item()
-                predictions = outputs["logits"].squeeze().detach().cpu().numpy()
-                labels = labels.detach().cpu().numpy()
-                val_labels.extend(labels)
-                val_predictions.extend(predictions)
-
-                # Accumulate attention weights
-                batch_attention = outputs["attention_weights"].mean(dim=1)  # Average across heads
-                if attention_weights_sum is None:
-                    attention_weights_sum = batch_attention.sum(dim=0).cpu().numpy()
-                else:
-                    attention_weights_sum += batch_attention.sum(dim=0).cpu().numpy()
-                attention_weights_count += batch_attention.shape[0]
-
-        avg_val_loss = val_loss / len(dev_dataloader)
-        print(f"Validation Loss: {avg_val_loss}")
-
-        # Calculate and print average attention weights
-        if attention_weights_count > 0:
-            avg_attention_weights = attention_weights_sum / attention_weights_count
-            print("\nAverage Attention Weights:")
-            print(avg_attention_weights)
-            
-            print("\nAttention Weight Interpretations:")
-            input_names = ['hidden1', 'hidden2', 'features1', 'features2']
-       
-            for i, name in enumerate(input_names):
-                print(f"Attention weight for {name}: {avg_attention_weights[i]:.4f}")
-                
-            # else:
-            #     print("Unexpected shape of attention weights. Please check the model output.")
-            #  if len(avg_attention_weights.shape) == 2:
-            #     for i, source in enumerate(input_names):
-            #         for j, target in enumerate(input_names):
-            #             print(f"{source} attending to {target}: {avg_attention_weights[i, j]:.4f}")
-            # elif len(avg_attention_weights.shape) == 1:
-        logging.info(f'Epoch {epoch+1}/{num_epochs} completed.')
-        # Save the model if the validation loss is the best we've seen so far.
-        if avg_val_loss < best_val_loss:
-            print("saving model")
-            best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), f"{model_dir}/model.pt")
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': avg_val_loss,
-            }, f"{model_dir}/checkpoint.pt")
-            early_stopping_counter = 0  # reset counter after improvement
-        else:
-            early_stopping_counter += 1
-            if early_stopping_counter >= early_stopping_patience:
-                print("Early stopping triggered.")
-                break
-
-        pbar.update(1)
-
-    pbar.close()
 
     neural_cosims = generate_neural_feature_map(test_dataloader, model_type)
 
@@ -358,30 +190,48 @@ if __name__ == "__main__":
         cosim = cosine_similarity(features1.reshape(1, -1), features2.reshape(1, -1))
         gram2vec_cosims.append(cosim[0][0])
 
-    predicted_labels = [] 
+    predicted_labels = []
+    attention_weights_sum = None
+    attention_weights_count = 0
 
     model.eval()
     with torch.no_grad():
         test_dataloader = tqdm(test_dataloader, desc="test loop", position=1 ,leave=True)
 
         for batch in test_dataloader:
-            # print(batch['labels'])
             with autocast():
                 doc1 = batch['text1']
                 doc2 = batch['text2']
                 features1 = batch['features1']
                 features2 = batch['features2']
-                labels = batch["labels"].to(device)  # Move labels to the device
+                labels = batch["labels"].to(device)
                 outputs = model(doc1, doc2, features1, features2, labels=labels, layernorm="pre")
-                # print(outputs)
-            # print(outputs["logits"])
-            predictions = outputs["logits"].squeeze().detach().cpu().numpy()  # Adjust based on your model's output
+
+            predictions = outputs["logits"].squeeze().detach().cpu().numpy()
             predicted_labels.append(predictions)
 
-    residual_cosims = [gram2vec_cosims[i] + predicted_labels[i] for i in range(len(predicted_labels))]
-    same_labels = list(item['same'] for item in test_data)
-    # same_labels = list(test_df_sampled['same'])
+            # Accumulate attention weights
+            batch_attention = outputs["attention_weights"].mean(dim=1)  # Average across heads
+            if attention_weights_sum is None:
+                attention_weights_sum = batch_attention.sum(dim=0).cpu().numpy()
+            else:
+                attention_weights_sum += batch_attention.sum(dim=0).cpu().numpy()
+            attention_weights_count += batch_attention.shape[0]
 
+    # Calculate and print average test attention weights
+    if attention_weights_count > 0:
+        avg_attention_weights = attention_weights_sum / attention_weights_count
+        print("\nAverage Test Attention Weights:")
+        print(avg_attention_weights)
+        
+        print("\nTest Attention Weight Interpretations:")
+        input_names = ['hidden1', 'hidden2', 'features1', 'features2']
+        for i, name in enumerate(input_names):
+            print(f"Attention weight for {name}: {avg_attention_weights[i]:.4f}")
+
+    residual_cosims = [gram2vec_cosims[i] + predicted_labels[i] for i in range(len(predicted_labels))]
+    same_labels = list(test_df['same'])
+    
     ic = [1 - abs(predicted_labels[i]) for i in range(len(predicted_labels))]
     # Save predictions and related data
     predictions_df = pd.DataFrame({
@@ -401,12 +251,13 @@ if __name__ == "__main__":
     predictions_file = f"{results_dir}/predictions.csv"
     predictions_df.to_csv(predictions_file, index=False)
     print(f"Saved predictions to {predictions_file}")
+
     ### EVALAUTION CODE ###
     thresholds = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
     for threshold in thresholds:
         g2v_correct = 0
         long_correct = 0
-        true_labels = list(test_df_sampled['same'])
+        true_labels = list(test_df['same'])
 
         for i in range(len(true_labels)):
             if true_labels[i] == 1:
@@ -440,6 +291,7 @@ if __name__ == "__main__":
         precision_per_class = precision_score(true_labels_np, predicted_labels_residual, average=None, zero_division=0)
         recall_per_class = recall_score(true_labels_np, predicted_labels_residual, average=None, zero_division=0)
 
+        # Check if the directory exists, create it if not
         csv_file_path = f"{results_dir}/metrics.csv"
 
         # Define the header for the CSV file
@@ -502,7 +354,7 @@ if __name__ == "__main__":
     plt.title(f'AUC Curve for {args.model_type} on {args.dataset}')
     plt.legend(loc="lower right")
     plt.grid()
-
+    # Check if the directory exists, if not create it
     plt.savefig(f"{graph_dir}/auc_curve.png")
     # # Check if the CSV file already exists
     file_exists = os.path.isfile(csv_file_path)

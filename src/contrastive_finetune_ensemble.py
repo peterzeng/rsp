@@ -10,8 +10,9 @@ from peft import LoraConfig, get_peft_model
 import argparse
 from torch.cuda.amp import GradScaler, autocast
 import numpy as np
-from sklearn.metrics import roc_curve, auc, f1_score
+from sklearn.metrics import roc_curve, auc
 from matplotlib import pyplot as plt
+import os
 
 class DocumentPairDataset(Dataset):
     def __init__(self, data, tokenizer, model_name):
@@ -103,8 +104,25 @@ if __name__ == "__main__":
     parser.add_argument('-m', '--model', type=str, default='luar', choices=['roberta-base', 'roberta-large', 'longformer', 'luar', 'luar-ru'])
     parser.add_argument('-d', '--dataset', type=str, default='hiatus_combined', choices=['reddit', 'amazon', 'fanfiction', 'hiatus_combined', 'hiatus_russian', 'pikabu'])
     parser.add_argument("-r", "--run_id", type=str, default="", help="Run ID for the experiment.")
+    parser.add_argument("-k", "--fold", type=int, default=0, help="Fold number for k-fold cross validation")
     args = parser.parse_args()
 
+    # Create descriptive experiment name
+    experiment_name = f"Contrastive_Finetune_{args.model}_{args.dataset}_fold{args.fold}_{args.run_id}"
+    
+    # Create output directories
+    base_output_dir = f"../experiments/{experiment_name}"
+    slurm_output_dir = f"../slurm_outputs/{experiment_name}"
+    model_dir = f"{base_output_dir}/models"
+    results_dir = f"{base_output_dir}/results"
+    graph_dir = f"{base_output_dir}/graphs"
+    
+    os.makedirs(slurm_output_dir, exist_ok=True)
+    # Create all directories
+    for directory in [model_dir, results_dir, graph_dir]:
+        os.makedirs(directory, exist_ok=True)
+
+    # exit()
     if args.model == "luar-ru":
         model_name = "/home/pezeng/rsp/LUAR-RU"
     elif args.model == "longformer":
@@ -114,13 +132,12 @@ if __name__ == "__main__":
         
     loss = ContrastiveLoss()
 
-    train_df = pd.read_csv(f"../data/{args.dataset}/train.csv")
-    # train_df = train_df.sample(frac=0.01)
-    dev_df = pd.read_csv(f"../data/{args.dataset}/dev.csv")
-    # dev_df = dev_df.sample(frac=0.01)
-    # test_df = pd.read_csv("../data/reddit/test.csv")
+    # Update data paths to use fold-specific data
+    data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
+    train_df = pd.read_csv(f"{data_base_path}/train.csv")
+    dev_df = pd.read_csv(f"{data_base_path}/dev.csv")
+    test_df = pd.read_csv(f"{data_base_path}/test.csv")
 
-        
     model = SiameseRoberta(model_name)
 
     if model_name == "/home/pezeng/rsp/LUAR-RU":
@@ -130,12 +147,12 @@ if __name__ == "__main__":
 
     train_data = process_posts(train_df)
     dev_data = process_posts(dev_df)
-    # test_data = process_posts(test_df)
+
     train_dataset = DocumentPairDataset(train_data, tokenizer, model_name)
     val_dataset = DocumentPairDataset(dev_data, tokenizer, model_name)
 
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -144,7 +161,7 @@ if __name__ == "__main__":
     optimizer = optim.AdamW(model.parameters(), lr=1e-5)
 
     best_val_loss = float('inf')
-    num_epochs = 5
+    num_epochs = 10
 
     # Initialize GradScaler
     scaler = GradScaler()
@@ -201,13 +218,12 @@ if __name__ == "__main__":
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), f'../model/contrastive_loss_finetuned_{args.model}_{args.dataset}.pt')
+            torch.save(model.state_dict(), f'{model_dir}/contrastive_finetuned_model.pt')
             print("Model saved as validation loss improved.")
     
-    vector_map = pd.read_pickle(f'vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl')
+    # Update vector map path
+    vector_map = pd.read_pickle(f'vector_cache/{args.dataset}_{args.run_id}_{args.fold}fold_vector_map.pkl')
     
-    test_df = pd.read_csv(f"../data/{args.dataset}/test.csv")
-
     post1s = list(test_df['document1'])
     post2s = list(test_df['document2'])
 
@@ -278,11 +294,7 @@ if __name__ == "__main__":
     neural_auc = auc(neural_fpr, neural_tpr)
     auc_score = auc(fpr, tpr)
     plt.figure()
-    # plt.text(0.05, 0.95, f'Best Weight: {best_weight:.3f}', fontsize=12, fontweight='bold', ha='left', va='top', color='red', bbox=dict(facecolor='white', alpha=0.8))
-    # plt.text(0.05, 0.80, f'Best Weight: {f1_best_weight:.3f}, Best F1: {best_f1:.3f}, Threshold: {best_threshold:.2f}', fontsize=12, fontweight='bold', ha='left', va='top', color='red', bbox=dict(facecolor='white', alpha=0.8))
-
-    # plt.text(0.5, 0.05, f'Best Weight: {best_weight:.3f}', fontsize=12, ha='center', color='red', bbox=dict(facecolor='white', alpha=0.5))
-    # plt.text(0.5, 0.01, f'Best Weight: {f1_best_weight:.3f}, Best F1: {best_f1:.3f}, Threshold: {best_threshold:.2f}', fontsize=12, ha='center', color='red', bbox=dict(facecolor='white', alpha=0.5))
+    plt.text(0.05, 0.95, f'Best Weight: {best_weight:.3f}', fontsize=12, fontweight='bold', ha='left', va='top', color='red', bbox=dict(facecolor='white', alpha=0.8))
     plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'Ensemble AUC = {auc_score:.3f}')
     plt.plot(gram2vec_fpr, gram2vec_tpr, color='blue', lw=2, label=f'gram2vec AUC = {gram2vec_auc:.3f}')
     plt.plot(neural_fpr, neural_tpr, color='green', lw=2, label=f'neural AUC = {neural_auc:.3f}')
@@ -294,4 +306,17 @@ if __name__ == "__main__":
     plt.title('Receiver Operating Characteristic')
     plt.legend(loc="lower right")
     plt.grid()
-    plt.savefig(f"contrastive_finetune_ensemble_results/roc_{args.model}_{args.dataset}.png")
+
+    # Save results
+    results_dict = {
+        'gram2vec_auc': gram2vec_auc,
+        'neural_auc': neural_auc,
+        'ensemble_auc': auc_score,
+        'best_weight': best_weight
+    }
+    
+    pd.DataFrame([results_dict]).to_csv(f'{results_dir}/metrics.csv', index=False)
+
+    # Update plot saving path
+    plt.savefig(f"{graph_dir}/roc_curve.png")
+    plt.close()
