@@ -13,7 +13,7 @@ import numpy as np
 from sklearn.metrics import roc_curve, auc
 from matplotlib import pyplot as plt
 import os
-
+from datetime import datetime
 class DocumentPairDataset(Dataset):
     def __init__(self, data, tokenizer, model_name):
         self.data = data
@@ -103,9 +103,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--model', type=str, default='luar', choices=['roberta-base', 'roberta-large', 'longformer', 'luar', 'luar-ru'])
     parser.add_argument('-d', '--dataset', type=str, default='hiatus_combined', choices=['reddit', 'amazon', 'fanfiction', 'hiatus_combined', 'hiatus_russian', 'pikabu'])
-    parser.add_argument("-r", "--run_id", type=str, default="", help="Run ID for the experiment.")
+    parser.add_argument("-r", "--run_id", type=str, required=False, help="Run ID for the experiment.")
     parser.add_argument("-k", "--fold", type=int, required=False, help="Fold number for k-fold cross validation")
     args = parser.parse_args()
+
+    if not args.run_id:
+        date = datetime.now().strftime("%Y-%m-%d")
+        args.run_id = date
 
     # Create descriptive experiment name
     if args.fold is not None:
