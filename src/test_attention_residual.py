@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     # Create descriptive experiment name
     settings_folder = f"{args.model_type}_{args.dataset}_{n}_{ln}"
-    if hasattr(args, 'fold') and args.fold >= 0:
+    if args.fold is not None:
         experiment_name = f"{args.run_id}_fold{args.fold}"
         data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
     else:
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     # Update file paths to use fold-specific data
-    if hasattr(args, 'fold') and args.fold >= 0:
+    if args.fold is not None:
         data_base_path = f"../data/{args.dataset}_kfold/fold_{args.fold}"
     else:
         data_base_path = f"../data/{args.dataset}"
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     from explainable_module import Gram2VecModule
     
     ### CACHE IS DECIDED HERE ###
-    if hasattr(args, 'fold') and args.fold >= 0:
+    if args.fold is not None:
         g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_fold{args.fold}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
     else:
         g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
