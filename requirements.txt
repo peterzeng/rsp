@@ -47,7 +47,7 @@ sympy==1.12
 tokenizers==0.19.1
 torch==2.3.0
 tqdm==4.66.4
-transformers==4.41.1
+transformers>=4.48.0
 typer==0.9.4
 tzdata==2024.1
 wheel==0.43.0
