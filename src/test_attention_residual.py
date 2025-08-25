@@ -5,7 +5,7 @@ import pandas as pd
 from transformers import AutoModel
 from tqdm.auto import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from sklearn.metrics import roc_curve, auc
 import argparse
 import os  
@@ -13,6 +13,8 @@ import csv
 import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
+
+
 def cache_and_process_documents(test_df, g2v_vectorizer, normalized=False):
 
     def cache_documents(df, g2v_vectorizer):
@@ -36,8 +38,8 @@ def cache_and_process_documents(test_df, g2v_vectorizer, normalized=False):
                 print(f"Document content: {repr(row['document2'])}")
                 raise  # Re-raise the exception if you want to stop execution
                 
-            g2v_vectorizer.cache_vector(row['document1'], row['doc_id1'])
-            g2v_vectorizer.cache_vector(row['document2'], row['doc_id2'])
+            g2v_vectorizer.cache_vector(row['document1'], row['document1_id'])
+            g2v_vectorizer.cache_vector(row['document2'], row['document2_id'])
 
     cache_documents(test_df, g2v_vectorizer)
     
@@ -45,13 +47,18 @@ def cache_and_process_documents(test_df, g2v_vectorizer, normalized=False):
     def process_posts(df, g2v_vectorizer, normalized=False):
         data = []
         for i, row in tqdm(df.iterrows(), total=df.shape[0], desc="Processing Posts"):
-            features1, features2, cosim = g2v_vectorizer.get_vector_and_score(row['document1'], row['document2'], row['doc_id1'], row['doc_id2'], normalized=normalized)
-            residual = (1 - cosim) if row['same'] == 1 else (-1 - cosim)
+            features1, features2, cosim = g2v_vectorizer.get_vector_and_score(row['document1'], row['document2'], row['document1_id'], row['document2_id'], normalized=normalized)
+            gold = row['same_author_label']
+            if gold == 1 or gold == True:
+                residual = (1 - cosim)
+            elif gold == 0 or gold == False:
+                residual = (-1 - cosim)
             data.append({"text1":row['document1'],
                             "text2":row['document2'],
                             "features1":features1,
                             "features2":features2,
-                            "residual":residual})
+                            "residual":residual,
+                            "same":row['same_author_label']})
         
         return data
     
@@ -72,7 +79,7 @@ def generate_neural_feature_map(dataloader, model_type):
         dataloader = tqdm(dataloader, desc="test loop", position=1 ,leave=True)
 
         for batch in dataloader:
-            with autocast():
+            with autocast(device_type='cuda'):
                 doc1 = batch['text1']
                 doc2 = batch['text2']
                 doc1 = {k: v.to(device) for k, v in doc1.items()}
@@ -91,17 +98,19 @@ def generate_neural_feature_map(dataloader, model_type):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model on residual data.")
     parser.add_argument("-m", "--model_type", type=str, default="luar", choices=["roberta", "roberta-large", "luar", "style", "luar-ru"], help="Type of model to use for training.")
+    parser.add_argument("-mfp", "--model_fp", type=str, required=False, help="Path to the model file.")
     parser.add_argument("-d", "--dataset", type=str, default="reddit", choices=["fanfiction", "reddit", "amazon", "hiatus", "hiatus_combined","hiatus_russian","pikabu"], help="Dataset to use for training.")
     parser.add_argument("-r", "--run_id", type=str, required=False, help="Run ID for the experiment.")
-    parser.add_argument("-v", "--save_dir", type=str, default="vector_cache", help="Path to the save directory.")
+    parser.add_argument("-s", "--save_dir", type=str, default="vector_cache", help="Path to the save directory.")
     parser.add_argument("-f", "--feature_dim", type=int, default=617, help="Feature dimension.")
-    parser.add_argument("-n", "--normalized", type=bool, default=True, help="Whether to use normalized vectors.")
+    parser.add_argument("-n", "--normalized", action="store_true", default=True,help="Whether to use normalized vectors.")
     parser.add_argument("--layernorm", type=str, required=False, choices=["pre", "post", "both"], help="Whether to use pre or post layernorm.")
     parser.add_argument("-l", "--language", type=str, default="en", choices=["en", "ru"], help="Language of the dataset.")
     parser.add_argument("-k", "--fold", type=int, required=False, help="Fold number for k-fold cross validation")
+    parser.add_argument("-v", "--vector_cache_fp", type=str, required=False, help="Path to the vector cache file.")
     args = parser.parse_args()
 
-    if not hasattr(args, 'run_id'):
+    if not args.run_id:
         date = datetime.now().strftime("%Y-%m-%d")
         args.run_id = date
     
@@ -125,8 +134,8 @@ if __name__ == "__main__":
     results_dir = f"{base_output_dir}/results"
     graph_dir = f"{base_output_dir}/graphs"
     
-    slurm_output_dir = f"../slurm_outputs/{settings_folder}/{experiment_name}"
-    os.makedirs(slurm_output_dir, exist_ok=True)
+    # slurm_output_dir = f"../slurm_outputs/{settings_folder}/{experiment_name}"
+    # os.makedirs(slurm_output_dir, exist_ok=True)
 
     # Create all directories
     for directory in [model_dir, results_dir, graph_dir]:
@@ -141,8 +150,10 @@ if __name__ == "__main__":
     else:
         data_base_path = f"../data/{args.dataset}"
 
+    print(f"data_base_path: {data_base_path}")
     test_df = pd.read_csv(f"{data_base_path}/test.csv", encoding="utf-8", lineterminator='\n')
-    
+    print(f"columns: {test_df.columns}")
+   
     if args.language == "en":
         os.environ["LANGUAGE"] = "en"
         os.environ["SPACY_MODEL"] = "en_core_web_lg"
@@ -153,10 +164,13 @@ if __name__ == "__main__":
     from explainable_module import Gram2VecModule
     
     ### CACHE IS DECIDED HERE ###
-    if args.fold is not None:
-        g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_fold{args.fold}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
+    if args.vector_cache_fp is not None:
+        g2v_vectorizer = Gram2VecModule(filepath=args.vector_cache_fp, dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
     else:
-        g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
+        if args.fold is not None:
+            g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_fold{args.fold}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
+        else:
+            g2v_vectorizer = Gram2VecModule(filepath=f"vector_cache/{args.dataset}_{args.run_id}_vector_map.pkl", dataset=args.dataset, save_dir=args.save_dir, run_id=args.run_id, configs=None)
 
     if args.model_type == "luar":
         model_type = "rrivera1849/LUAR-MUD"
@@ -169,8 +183,12 @@ if __name__ == "__main__":
     elif args.model_type == "style":
         model_type = "AnnaWegmann/Style-Embedding"
 
-    model = AttentionResidualModel(model_type=model_type, feature_dim=args.feature_dim)
-    model.load_state_dict(torch.load(f"{model_dir}/model.pt"))
+    if args.model_fp is not None:
+        model = AttentionResidualModel(model_type=model_type, feature_dim=args.feature_dim)
+        model.load_state_dict(torch.load(args.model_fp))
+    else:
+        model = AttentionResidualModel(model_type=model_type, feature_dim=args.feature_dim)
+        model.load_state_dict(torch.load(f"{model_dir}/model.pt"))
     model.to(device)
     
     test_data = cache_and_process_documents(test_df, g2v_vectorizer, normalized=args.normalized)
@@ -180,7 +198,7 @@ if __name__ == "__main__":
 
     test_dataloader = DataLoader(test_dataset, batch_size=1)
 
-    neural_cosims = generate_neural_feature_map(test_dataloader, model_type)
+    # neural_cosims = generate_neural_feature_map(test_dataloader, model_type)
 
     # TESTING LOOP TO SEE HOW MUCH FINETUNED MODEL CORRECTS GRAM2VEC:
     gram2vec_cosims = []
@@ -199,7 +217,7 @@ if __name__ == "__main__":
         test_dataloader = tqdm(test_dataloader, desc="test loop", position=1 ,leave=True)
 
         for batch in test_dataloader:
-            with autocast():
+            with autocast(device_type='cuda'):
                 doc1 = batch['text1']
                 doc2 = batch['text2']
                 features1 = batch['features1']
@@ -230,18 +248,18 @@ if __name__ == "__main__":
             print(f"Attention weight for {name}: {avg_attention_weights[i]:.4f}")
 
     residual_cosims = [gram2vec_cosims[i] + predicted_labels[i] for i in range(len(predicted_labels))]
-    same_labels = list(test_df['same'])
+    same_labels = list(test_df['same_author_label'])
     
     ic = [1 - abs(predicted_labels[i]) for i in range(len(predicted_labels))]
+    
     # Save predictions and related data
     predictions_df = pd.DataFrame({
         'document1': test_df['document1'],
         'document2': test_df['document2'],
-        'doc_id1': test_df['doc_id1'],
-        'doc_id2': test_df['doc_id2'],
-        'true_label': same_labels,
+        'document1_id': test_df['document1_id'],
+        'document2_id': test_df['document2_id'],
+        'true_label': test_df['same_author_label'],
         'gram2vec_score': gram2vec_cosims,
-        'neural_score': neural_cosims,
         'predicted_residual': predicted_labels,
         'final_score': residual_cosims,
         'ic': ic
@@ -257,7 +275,7 @@ if __name__ == "__main__":
     for threshold in thresholds:
         g2v_correct = 0
         long_correct = 0
-        true_labels = list(test_df['same'])
+        true_labels = list(test_df['same_author_label'])
 
         for i in range(len(true_labels)):
             if true_labels[i] == 1:
@@ -329,6 +347,9 @@ if __name__ == "__main__":
             ])
     ### END EVALAUTION CODE ###
 
+    # For ROC curve calculations, use the DataFrame labels
+    true_labels_np = np.array(test_df['same_author_label'])
+    
     # Calculate the ROC curve and AUC for residual_cosims
     fpr_residual, tpr_residual, _ = roc_curve(true_labels_np, residual_cosims)
     auc_residual = auc(fpr_residual, tpr_residual)
@@ -337,15 +358,15 @@ if __name__ == "__main__":
     fpr_gram2vec, tpr_gram2vec, _ = roc_curve(true_labels_np, gram2vec_cosims)
     auc_gram2vec = auc(fpr_gram2vec, tpr_gram2vec)
 
-    fpr_neural, tpr_neural, _ = roc_curve(true_labels_np, neural_cosims)
-    auc_neural = auc(fpr_neural, tpr_neural)
+    # fpr_neural, tpr_neural, _ = roc_curve(true_labels_np, neural_cosims)
+    # auc_neural = auc(fpr_neural, tpr_neural)
 
     # print(f"gram2vec AUC: {auc_gram2vec:.3f}, residual AUC: {auc_residual:.3f}")
     # Plot the ROC curve
     plt.figure()
     plt.plot(fpr_residual, tpr_residual, color='darkorange', lw=2, label=f'Residual AUC = {auc_residual:.3f}')
     plt.plot(fpr_gram2vec, tpr_gram2vec, color='blue', lw=2, label=f'Gram2Vec AUC = {auc_gram2vec:.3f}')
-    plt.plot(fpr_neural, tpr_neural, color='green', lw=2, label=f'Neural AUC = {auc_neural:.3f}')
+    # plt.plot(fpr_neural, tpr_neural, color='green', lw=2, label=f'Neural AUC = {auc_neural:.3f}')
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
