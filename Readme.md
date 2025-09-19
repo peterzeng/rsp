@@ -1,4 +1,4 @@
-## RResidualized Similarity for Faithfully Explainable Authorship Verification
+## Residualized Similarity for Faithfully Explainable Authorship Verification
 
 ### Setup
 - `conda create -n rsp python=3.10`
