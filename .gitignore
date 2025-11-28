@@ -8,3 +8,4 @@ data/
 *.zip
 *.pkl
 *.pth
+.specstory/
