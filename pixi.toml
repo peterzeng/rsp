@@ -1,0 +1,30 @@
+[workspace]
+name = "rsp"
+version = "0.1.0"
+description = "Residualized Similarity Prediction using Attention (code for Zeng et al., Findings 2025)"
+authors = ["Peter Zeng <peter.zeng@example.com>"]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.10.*"
+pip = "*"
+pytorch = "*"
+pytorch-gpu = "*"
+transformers = "*"
+scikit-learn = "*"
+matplotlib = "*"
+einops = "*"
+seaborn = "*"
+
+[system-requirements]
+cuda = "12.4"
+
+[pypi-dependencies]
+gram2vec = { git = "https://github.com/eric-sclafani/gram2vec.git" }
+peft = "*"
+
+[tasks]
+train-rs-luar-all = "bash scripts/train_rs_luar_all.sh"
+
+

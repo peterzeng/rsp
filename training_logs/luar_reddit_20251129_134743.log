@@ -1,0 +1,6 @@
+Downloading spaCy language model 'en_core_web_lg' (this will only happen once)
+/home/pezeng/dev/rsp/.pixi/envs/default/bin/python: No module named pip
+normalized: True
+settings_folder:  luar_reddit_normalized_no_ln
+experiment_name:  2025-11-29
+cpu

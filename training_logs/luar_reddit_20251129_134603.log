@@ -1,0 +1,18 @@
+normalized: True
+settings_folder:  luar_reddit_normalized_no_ln
+experiment_name:  2025-11-29
+cpu
+Traceback (most recent call last):
+  File "/home/pezeng/dev/rsp/src/train_attention_residual.py", line 189, in <module>
+    train_df = pd.read_csv(f"{data_base_path}/train.csv", encoding="utf-8")
+  File "/home/pezeng/dev/rsp/.pixi/envs/default/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 1026, in read_csv
+    return _read(filepath_or_buffer, kwds)
+  File "/home/pezeng/dev/rsp/.pixi/envs/default/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 620, in _read
+    parser = TextFileReader(filepath_or_buffer, **kwds)
+  File "/home/pezeng/dev/rsp/.pixi/envs/default/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 1620, in __init__
+    self._engine = self._make_engine(f, self.engine)
+  File "/home/pezeng/dev/rsp/.pixi/envs/default/lib/python3.10/site-packages/pandas/io/parsers/readers.py", line 1880, in _make_engine
+    self.handles = get_handle(
+  File "/home/pezeng/dev/rsp/.pixi/envs/default/lib/python3.10/site-packages/pandas/io/common.py", line 882, in get_handle
+    handle = open(handle, ioargs.mode)
+FileNotFoundError: [Errno 2] No such file or directory: '../data/reddit/train.csv'

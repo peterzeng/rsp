@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/pezeng/dev/rsp/src/train_attention_residual.py", line 3, in <module>
+    from AttentionResidualModel import AttentionResidualDataset, AttentionResidualModel
+  File "/home/pezeng/dev/rsp/src/AttentionResidualModel.py", line 6, in <module>
+    from peft import LoraConfig, get_peft_model
+ModuleNotFoundError: No module named 'peft'
