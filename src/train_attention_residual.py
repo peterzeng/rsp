@@ -209,7 +209,7 @@ if __name__ == "__main__":
         "dep_labels":1, 
         "morph_tags":1,
         "sentences":1,
-        "num_tokens":0
+        "num_tokens":1
     }
 
     ### CACHE IS DECIDED HERE ###

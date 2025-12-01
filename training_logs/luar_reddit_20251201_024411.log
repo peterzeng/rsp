@@ -1,0 +1,29 @@
+Downloading spaCy language model 'en_core_web_lg' (this will only happen once)
+Collecting en-core-web-lg==3.8.0
+  Downloading https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl (400.7 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 400.7/400.7 MB 77.2 MB/s  0:00:04
+Installing collected packages: en-core-web-lg
+Successfully installed en-core-web-lg-3.8.0
+normalized: True
+settings_folder:  luar_reddit_normalized_no_ln
+experiment_name:  2025-12-01
+cuda
+[38;5;2m✔ Download and installation successful[0m
+You can now load the package via spacy.load('en_core_web_lg')
+Gram2Vec: Using 'en_core_web_lg'
+Cache for vector_cache/reddit_2025-12-01_vector_map.pkl not found, creating new cache.
+Collecting Documents:   0%|          | 0/47918 [00:00<?, ?it/s]Collecting Documents:   7%|▋         | 3519/47918 [00:00<00:01, 35181.65it/s]Collecting Documents:  16%|█▌        | 7527/47918 [00:00<00:01, 38060.53it/s]Collecting Documents:  24%|██▍       | 11546/47918 [00:00<00:00, 39031.42it/s]Collecting Documents:  32%|███▏      | 15570/47918 [00:00<00:00, 39506.30it/s]Collecting Documents:  41%|████      | 19586/47918 [00:00<00:00, 39739.22it/s]Collecting Documents:  49%|████▉     | 23611/47918 [00:00<00:00, 39909.62it/s]Collecting Documents:  58%|█████▊    | 27623/47918 [00:00<00:00, 39975.16it/s]Collecting Documents:  66%|██████▌   | 31636/47918 [00:00<00:00, 40023.85it/s]Collecting Documents:  74%|███████▍  | 35661/47918 [00:00<00:00, 40094.02it/s]Collecting Documents:  83%|████████▎ | 39694/47918 [00:01<00:00, 40166.11it/s]Collecting Documents:  91%|█████████ | 43711/47918 [00:01<00:00, 40151.37it/s]Collecting Documents: 100%|█████████▉| 47730/47918 [00:01<00:00, 40161.01it/s]Collecting Documents: 100%|██████████| 47918/47918 [00:01<00:00, 39760.63it/s]
+Collecting Documents:   0%|          | 0/10070 [00:00<?, ?it/s]Collecting Documents:  39%|███▉      | 3929/10070 [00:00<00:00, 39287.51it/s]Collecting Documents:  79%|███████▊  | 7912/10070 [00:00<00:00, 39601.75it/s]Collecting Documents: 100%|██████████| 10070/10070 [00:00<00:00, 39614.37it/s]
+Collecting Documents:   0%|          | 0/10208 [00:00<?, ?it/s]Collecting Documents:  38%|███▊      | 3900/10208 [00:00<00:00, 38995.11it/s]Collecting Documents:  77%|███████▋  | 7868/10208 [00:00<00:00, 39392.79it/s]Collecting Documents: 100%|██████████| 10208/10208 [00:00<00:00, 39342.42it/s]
+Vectorizing and Caching documents:   0%|          | 0/682 [00:00<?, ?it/s]Vectorizing and Caching documents:   0%|          | 0/682 [00:00<?, ?it/s]
+Processing batch 1 of 682
+Traceback (most recent call last):
+  File "/home/pezeng/dev/rsp/src/train_attention_residual.py", line 250, in <module>
+    train_data, dev_data, test_data = cache_and_process_documents(train_df_sampled, dev_df_sampled, test_df_sampled, g2v_vectorizer, normalized=args.normalized)
+  File "/home/pezeng/dev/rsp/src/train_attention_residual.py", line 78, in cache_and_process_documents
+    cache_documents(combined_documents, combined_uids, g2v_vectorizer)
+  File "/home/pezeng/dev/rsp/src/train_attention_residual.py", line 60, in cache_documents
+    g2v_vectorizer.save_cache()
+  File "/home/pezeng/dev/rsp/src/explainable_module.py", line 119, in save_cache
+    with open(f"{self.filepath}", "wb") as f:
+FileNotFoundError: [Errno 2] No such file or directory: 'vector_cache/reddit_2025-12-01_vector_map.pkl'

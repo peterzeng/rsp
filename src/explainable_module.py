@@ -116,7 +116,12 @@ class Gram2VecModule(ExplainableModule):
         return vector_1, vector_2, cosine_sim
 
     def save_cache(self):
-        with open(f"{self.filepath}", "wb") as f:
+        # Ensure the directory for the cache file exists before saving
+        cache_dir = os.path.dirname(self.filepath)
+        if cache_dir and not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
+
+        with open(self.filepath, "wb") as f:
             pickle.dump(self.cache, f)
 
     def normalize_cache(self):
